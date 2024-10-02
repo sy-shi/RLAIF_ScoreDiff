@@ -1,0 +1,53 @@
+Q:
+State[b]:
+Agent: Chamber2 (5,5)
+Clinic: Chamber3 (4,1)
+Passage to Chamber2: Chamber1 (3,5)
+Door at Chamber2 (5,3): locked
+Redkey: Chamber2 (5,6)
+
+Agent does not carry any key. 
+Agent action: move right
+
+Does the action taken by the Agent in State[b] help it progress towards the Clinic?
+
+A: Let’s think step by step.
+
+First, what action should the agent take to progress towards the Clinic in State[b]? Given the agent in Chamber2, to reach the Clinic in Chamber3, the agent must first try entering Chamber3. To enter Chamber3 from Chamber2, the agent must first pass the door between Chamber2 and Chamber3. Given the door is still locked, the agent should unlock it with the redkey first. Given that the agent does not carry any key in State[b], the agent must first pick up the red key in Chamber2. In order to do this, this agent must move closer to or pick up this red key in Chamber2 (5,6). 
+
+Then, did the agent do so? The mahanttan distance between the Agent and the redkey is |5-5|+|5-6|=0+1, which is one.
+
+The agent takes an action to "move right", which means it will move from (5, 5) to (6, 5). 
+
+Which chamber is (6,5) in?  
+
+Still in Chamber2. The mahanttan distance between the Agent and the redkey becomes |6-5|+|5-6|=1+1, which is two, so the Agent is actually one step farther away from the redkey.
+
+Therefore, the action taken by the Agent in State[b] does not help it progress towards the Clinic. The answer is No.
+
+Q:
+State[c]:
+Agent: Chamber2 (4,4)
+Clinic: Chamber3 (4,1)
+Passage to Chamber2: Chamber1 (3,5)
+Door at Chamber2 (5,3): locked
+
+Agent carries one red key. 
+Agent action: move up
+
+Does the action taken by the Agent in State[c] help it progress towards the Clinic?
+
+A: Let’s think step by step.
+
+First, what action should the agent take to progress towards the Clinic in State[c]? Given the agent in Chamber2 and carrying a red key, to reach the Clinic in Chamber3, the agent must first try entering Chamber3. To enter Chamber3 from Chamber2, the agent must first pass the door between Chamber2 and Chamber3. Given the door is still locked, the agent should unlock it with the red key. The agent already carries one red key, so it can directly move towards the door. In order to do this, this agent must move closer to or reach the door in Chamber2 (5,3).
+
+Then, did the agent do so? The mahanttan distance between the Agent and the door is |4-5|+|4-3|=1+1, which is two.
+
+The agent takes an action to "move up", which means it will move from (4, 4) to (4, 5).
+
+Which chamber is (4,5) in?  
+
+Still in Chamber2. But the mahanttan distance between the Agent and the door becomes |4-5|+|5-3|=1+2, which is three, so the Agent is actually one step farther away from the door.
+
+Therefore, the action taken by the Agent in State[c] does not help it progress towards the Clinic. The answer is No.
+

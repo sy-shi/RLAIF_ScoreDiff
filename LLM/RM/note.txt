@@ -1,0 +1,60 @@
+[[37.  5. 23.]
+ [27. 11. 24.]]
+[[ 6376. 12350.  7042.]
+ [ 4852. 14382.  6566.]]
+Agent 0: 3085 rows of input and 3085 rows of output.
+Agent 1: 3000 rows of input and 3000 rows of output.
+
+Epoch 97, Loss: 0.5618461214554082. Current Learning Rate: 4e-05
+Validation Loss: 0.544833779335022
+-------------------------------------------
+Epoch 98, Loss: 0.561579902425449.
+
+Epoch 100, Loss: 0.5675320268002129. Current Learning Rate: 4e-05
+Validation Loss: 0.6054441332817078
+
+
+
+
+
+Epoch 99, Loss: 0.5614041360251301. Current Learning Rate: 4e-05
+Validation Loss: 0.5666244029998779
+-------------------------------------------
+Epoch 100, Loss: 0.5607412487448341. Current Learning Rate: 4e-05
+Validation Loss: 0.5702280402183533
+
+
+alidation Loss: 0.6033047437667847
+-------------------------------------------
+Epoch 100, Loss: 0.5533744094357405. Current Learning Rate: 4e-05
+Validation Loss: 0.6054767370223999
+
+
+
+
+
+
+
+
+
+
+Epoch 100, Loss: 0.5651138837177683. Current Learning Rate: 4e-05
+Validation Loss: 0.5848535895347595
+
+Epoch 100, Loss: 0.5554831914745819. Current Learning Rate: 4e-05
+Validation Loss: 0.5739433169364929
+
+
+
+
+
+
+
+
+
+[2. 3. 4.]
+ [3. 2. 7.]]
+[[ 6435. 12475.  7136.]
+ [ 4959. 14297.  6810.]]
+Agent 0: 3000 rows of input and 3000 rows of output.
+Agent 1: 3087 rows of input and 3087 rows of output.
