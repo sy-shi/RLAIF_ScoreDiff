@@ -211,7 +211,7 @@ def collect_ranking_data_llm(env, filepath, llm_filepath, sample_size):
 
     training_data = {"input": [], "target": [], "llm_target": []}
 
-    with open(os.getcwd() + '/LLM/prompts/env3.txt', "r") as file:
+    with open(os.getcwd() + '/LLM/prompts/multi_lock.txt', "r") as file:
         sys_prompt = file.read()
     n = len(obs_list)
     llm_accu = 0

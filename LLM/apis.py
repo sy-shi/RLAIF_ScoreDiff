@@ -4,7 +4,6 @@ import numpy as np
 from enum import Enum
 from environment.minigrid.minigrid import OBJECT_TO_IDX
 import pickle
-#from TypeChat.typechat.typechat import TypeChat
 
 class Ranking(Enum):
     GREATER = 0

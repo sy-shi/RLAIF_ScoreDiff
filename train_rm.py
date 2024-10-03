@@ -13,19 +13,11 @@ from enum import Enum
 from rewardModel import RewardModel
 #from ray.rllib.models.torch.misc import SlimConv2d
 
-#AGENT = 0   # {0,1}
-LARGE_NETWORK = False
-ORI_NETWORK = True
-USE_GPT4 = False
-USE_STARLING = False
-USE_TRUE_DATA = True
-USE_LLAMA = True
+USE_GT_DATA = True
 
 EVALUATE = True
-VALIDATION = not EVALUATE
 
-INIT_LR =  [0.001, 0.01][LARGE_NETWORK]
-BATCH_SIZE = 128#[32, 12812768][LARGE_NETWORK]
+INIT_LR =  0.001
 
 
 class Ranking(Enum):
@@ -37,15 +29,15 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--mode",
     default="train",
-    choices=["train", "validate", "tune"],
-    help="train or validate"
+    choices=["train", "evaluate", "tune"],
+    help="train or evaluate"
 )
 
 parser.add_argument(
     "--model_path",
     type=str,
     default=None,
-    help="the path of the model we need to validate"
+    help="the path of the model we need to evaluate"
 )
 
 # Define the Dataset
@@ -55,7 +47,7 @@ class RewardDataset(Dataset):
         self.obs_data = [[], []]
         self.eq_num = 0
 
-        if USE_LLAMA:
+        if not USE_GT_DATA:
             target = 'llm_target'
         else:
             target = 'target'
@@ -80,21 +72,13 @@ class RewardDataset(Dataset):
     def __getitem__(self, idx):
         data = [None,None]
         for d in range(2):
-            if not USE_TRUE_DATA:
-                data[d] = np.array([float(ob) for ob in self.obs_data[d][idx]]).reshape(9,9,3).astype(np.float32)
-            else:
-                #print(np.array(self.obs_data).shape)
-                data[d] = np.array(self.obs_data[d][idx]).astype(np.float32)
+            data[d] = np.array(self.obs_data[d][idx]).astype(np.float32)
         return torch.tensor(data[0]), torch.tensor(data[1])
     
 class ValidDataset(RewardDataset):
     def __init__(self, size):
         self.size = size
         self.obs_data = [[],[]]
-        # if EVALUATE:
-        #     files = [os.getcwd()+'/data/validating_states_high' + str(AGENT) + '-v2-clean.csv', os.getcwd()+'/data/validating_states_low' + str(AGENT) + '-v2-clean.csv']
-        # elif VALIDATION:
-            #files = FILES
         
         training_data = pickle.load(open("ranking_data30k.pkl", "rb"))
         for n in range(len(training_data["input"])):
@@ -142,7 +126,7 @@ def train(model, device, data_loader, optimizer, writer, epochs, scheduler):
         current_lr = scheduler.get_last_lr()[0]
         if args.mode == "train":
             print(f"Epoch {epoch+1}, Loss: {total_loss / len(data_loader.dataset)}. Current Learning Rate: {current_lr}")
-        ave_loss, ave_correct = validate(model, valid_loader, device)
+        ave_loss, ave_correct = evaluate(model, valid_loader, device)
         if epoch >=5 and ave_correct < 0.1:
             return
         if args.mode == "train":
@@ -154,19 +138,16 @@ def train(model, device, data_loader, optimizer, writer, epochs, scheduler):
 # Define the lambda function for learning rate adjustment
 def lr_lambda_selector(lr_list):
     def lr_lambda(epoch):
-        if epoch < 20: #180
-            return lr_list[0] / INIT_LR #0.0001# Keep the initial learning rate 000133# relu-1fc ori #00004 relu-2fc ori
+        if epoch < 20:
+            return lr_list[0] / INIT_LR
         elif 20 <= epoch < 100:
-            return lr_list[1] / INIT_LR # 00004 relu-1fc ori 00001 relu-2fc ori #ELSE 0.001 LARGE-SPECIAL 0.0006
+            return lr_list[1] / INIT_LR
         else:
-            return lr_list[2] / INIT_LR  #0005# 00002 2fc ori 00001 relu-2fc ori
-        # if 100 <= epoch < 200: #!
-        #     return 0.0008 / INIT_LR 
-        # else:
-        #     return 0.00000001 / INIT_LR  #!
+            return lr_list[2] / INIT_LR
+
     return lr_lambda
 
-def validate(model, valid_loader, device):
+def evaluate(model, valid_loader, device):
     model.eval()  # Set the model to evaluation mode
     total_loss = 0.0
     training_ranking_correct_rate = 0
@@ -186,9 +167,7 @@ def validate(model, valid_loader, device):
     # Calculate average loss over all samples
     avg_loss = total_loss / len(valid_loader.dataset)
     training_ranking_correct_rate /= len(valid_loader.dataset)
-    #if training_ranking_correct_rate == 0.0:
-    # for r in range(len(r_a)):
-    #     print(r_a[r], r_b[r])
+
     if args.mode != 'tune':
         print(f'Validation Loss: {avg_loss}')
         print('Validation Ranking Correctness:',training_ranking_correct_rate)
@@ -274,36 +253,12 @@ def append_result_to_json(file_path, result):
 # Main
 if __name__ == "__main__":
     args = parser.parse_args()
-    global AGENT, DATASET_SIZE, VALI_DATA_SIZE, FILES
-    #DATASET_SIZE = [[277, 299], [8365, 8295]][LARGE_NETWORK][AGENT]
-    #DATASET_SIZE = [3033, 3034][AGENT]
-    #DATASET_SIZE = [1541, 1541][AGENT]
-    DATASET_SIZE = 5000
+    global VALI_DATA_SIZE
 
-    VALI_DATA_SIZE = 500#int(DATASET_SIZE / 5)
-    DATASET_SIZE = DATASET_SIZE - VALI_DATA_SIZE
+    VALI_DATA_SIZE = 1000
 
-    if USE_TRUE_DATA:
-        GT_FILE = "ranking_data_train_env3-llama8b.pkl"
-        # GT_FILE = "ranking_data30k.pkl"
-    elif USE_LLAMA:
-        GT_FILE = "ranking_data_train_env3-llama8b.pkl"
-    elif USE_STARLING:
-        FILES = [os.getcwd()+'/data/data/starling_states_high' + '.csv', os.getcwd()+'/data/data/starling_states_low' + '.csv'] #48.5% 55.3%
-        # by stage accuracy [[0.49149923 0.47443182        nan]
-        #  [0.51654412 0.5978022         nan]]
-        # vf accuracy [0.485 0.553]
-    elif USE_GPT4:
-        FILES = [os.getcwd()+'/data/data/old-gpt4_states_high' + '.csv', os.getcwd()+'/data/data/old-gpt4_states_low' + '.csv'] 
-        # by stage accuracy [[0.51004637 0.41477273        nan]
-        # [0.48713235 0.57362637        nan]]
-        # vf accuracy [0.476 0.526]
+    GT_FILE = "ranking_data_train_env3-llama8b.pkl"
 
-        # clip
-        # by stage accuracy [[0.51622875 0.53409091        nan]
-        # [0.47610294 0.56703297        nan]]
-        # vf accuracy [0.522 0.517]
-    
     config = {
         "conv_filters": [
             [16, [2, 2], 1, (2,1)],
@@ -370,4 +325,4 @@ if __name__ == "__main__":
         valid_data = ValidDataset(size=VALI_DATA_SIZE)
         valid_loader = DataLoader(valid_data, batch_size=VALI_DATA_SIZE, shuffle=False)
 
-        validate(model, valid_loader, device)
+        evaluate(model, valid_loader, device)

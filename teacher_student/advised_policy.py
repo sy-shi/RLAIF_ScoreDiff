@@ -1,27 +1,16 @@
 import gym
 import os
 from rewardModel import RewardModel, RandomNetwork
-import model.introspection_model as introspection_model
 import model.model_wrapper as model_wrapper
 import numpy as np
 import torch
-from typing import List, Type, Union, Dict, Tuple, Optional
+from typing import Optional
 
-from . import advise
-from . import util
 
 from ray.rllib.evaluation.postprocessing import Postprocessing
-from ray.rllib.models.action_dist import ActionDistribution
-from ray.rllib.models.modelv2 import restore_original_dimensions, ModelV2
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.utils.torch_utils import (
-    convert_to_torch_tensor,
-    explained_variance,
-    sequence_mask,
-    warn_if_infinite_kl_divergence,
-)
 from ray.rllib.evaluation.postprocessing import (
     Postprocessing,
     discount_cumsum
@@ -36,19 +25,16 @@ def get_advised_policy(base_class):
     class AdvisedPolicy(base_class):
         def __init__(self, observation_space, action_space, config):
             self.advice_mode = config.get("advice_mode", False)
-            self.smooth_mode = config.get("smooth_mode")
             self.teacher_model_path = config.get("teacher_model_path")
             self.teacher_model_config = config.get("teacher_model_config")
             self.max_steps = config.get("max_steps")
-            self.reward_clipping_func = config.get("reward_clipping_func")
-            self.max_reward_scale = config.get("max_reward_scale")
             self.score_mean = config.get("score_mean")
             self.score_std = config.get("score_std")
             self.const_penalty = config.get("constant_penalty")
-            self.random_network_path = config.get("random_network_path")
+
             self.action_log = {}
             self.teacher_model = None
-            self.random_network = None
+
             self.teacher_initialized = False
             super().__init__(observation_space, action_space, config)
 
@@ -60,8 +46,7 @@ def get_advised_policy(base_class):
                 assert os.path.exists(self.teacher_model_path)
                 self.teacher_model.load_state_dict(torch.load(self.teacher_model_path, map_location=next(self.teacher_model.parameters()).device))
                 self.teacher_model.eval()
-                if self.reward_clipping_func == "random":
-                    self.random_network = RandomNetwork(self.teacher_model_config, file_path=self.random_network_path)
+
                 self.teacher_initialized = True
 
         def postprocess_trajectory(self, sample_batch, other_agent_batches=None, episode=None):
@@ -89,15 +74,12 @@ def get_advised_policy(base_class):
             # print('the new shape of sample_batch[SampleBatch.VF_PREDS]',sample_batch[SampleBatch.VF_PREDS].shape)
             # print('*************************')
             # return sample_batch
-            if True:
 
-                with torch.no_grad():
-                    return self.compute_gae_for_sample_batch(
-                        self, sample_batch, other_agent_batches, episode
-                    )
-            else:
-                batch = super().postprocess_trajectory(sample_batch, other_agent_batches, episode)
-                return batch
+            with torch.no_grad():
+                return self.compute_gae_for_sample_batch(
+                    self, sample_batch, other_agent_batches, episode
+                )
+
         
         def compute_advantages(self,
             rollout: SampleBatch,
@@ -134,172 +116,59 @@ def get_advised_policy(base_class):
             # Compute the value estimates for each observation
             sample = self._lazy_tensor_dict(rollout.copy())
 
-            # print('*****************************')
-            # print(sample)
-            # print(sample['obs'])
-            # print(sample['new_obs'])
-            # print(sample[SampleBatch.DONES])
-            # print('*****************************')
-
-            # print(sample['obs'].shape)
             rm_eval = False
             if (self.advice_mode == 'llm' or self.advice_mode == 'baseline') and self.teacher_initialized:
-                try:
-                    with torch.no_grad():
-                        x1 = torch.tensor([convert_to_numpy(o[5:]) for o in sample['obs'].float()]).reshape(-1,13,9,3)
 
-                        for i in range(x1.shape[0]):
-                            obs_r = x1[i]
-                            for cn in range(9):
-                                for lm in range(13):
-                                    obj_type = obs_r[lm,cn,0]
-                                    if obj_type == 10:
-                                        x1[i][lm, cn, 2] = 0
+                with torch.no_grad():
+                    x1 = torch.tensor([convert_to_numpy(o[5:]) for o in sample['obs'].float()]).reshape(-1,13,9,3)
 
-                        # Reorder the state from (NHWC) to (NCHW).
-                        # Most images put channel last, but pytorch conv expects channel first.
-                        x1 = x1.permute(0, 3, 1, 2)
+                    for i in range(x1.shape[0]):
+                        obs_r = x1[i]
+                        for cn in range(9):
+                            for lm in range(13):
+                                obj_type = obs_r[lm,cn,0]
+                                if obj_type == 10:
+                                    x1[i][lm, cn, 2] = 0
 
-                        value_estimates = (self.teacher_model(x1).squeeze())
+                    # Reorder the state from (NHWC) to (NCHW).
+                    # Most images put channel last, but pytorch conv expects channel first.
+                    x1 = x1.permute(0, 3, 1, 2)
 
-
-                        # current new state
-                        x2 = torch.tensor([convert_to_numpy(o[5:]) for o in sample['new_obs'].float()]).reshape(-1,13,9,3)
-
-                        for i in range(x2.shape[0]):
-                            obs_r = x2[i]
-                            for cn in range(9):
-                                for lm in range(13):
-                                    obj_type = obs_r[lm,cn,0]
-                                    if obj_type == 10:
-
-                                        x2[i][lm, cn, 2] = 0
-
-                        x2 = x2.permute(0, 3, 1, 2)
-
-                        value_estimates_ = (self.teacher_model(x2).squeeze())
-
-                        rm_eval = True
+                    value_estimates = (self.teacher_model(x1).squeeze())
 
 
-                except Exception as e:
-                    print("An error occurred:")
-                    traceback.print_exc()
+                    # current new state
+                    x2 = torch.tensor([convert_to_numpy(o[5:]) for o in sample['new_obs'].float()]).reshape(-1,13,9,3)
+
+                    for i in range(x2.shape[0]):
+                        obs_r = x2[i]
+                        for cn in range(9):
+                            for lm in range(13):
+                                obj_type = obs_r[lm,cn,0]
+                                if obj_type == 10:
+
+                                    x2[i][lm, cn, 2] = 0
+
+                    x2 = x2.permute(0, 3, 1, 2)
+
+                    value_estimates_ = (self.teacher_model(x2).squeeze())
+
+                    rm_eval = True
+
                 
-                try:
-                    if self.reward_clipping_func == "tanh":
-                        value_diff = self.max_reward_scale * torch.tanh(value_estimates_ - value_estimates).cpu()
-                    elif self.reward_clipping_func == "sigmoid":
-                        value_diff = self.max_reward_scale * (2 * torch.sigmoid(value_estimates_ - value_estimates) - 1).cpu()
-                    elif self.reward_clipping_func == "constant":
-                        diff = value_estimates_ - value_estimates
-                        value_diff = self.max_reward_scale * (torch.where(diff > 0, torch.ones_like(diff), torch.where(diff == 0, torch.zeros_like(diff), -torch.ones_like(diff))))
-                    elif self.reward_clipping_func == "random":
-                        rand_rwd = torch.rand(value_estimates.shape)
-                        with torch.no_grad():
-                            rand_rwd = self.random_network(x1).squeeze()
-                        diff = value_estimates_ - value_estimates
-                        value_diff = self.max_reward_scale * rand_rwd * (torch.where(diff > 0, torch.ones_like(diff), torch.where(diff == 0, torch.zeros_like(diff), -torch.ones_like(diff))))
-                    else:
-                        value_diff = (value_estimates_ - value_estimates).cpu()
 
-                except:
-                    print('\n\n\n\n\n')
-                    print('error occurs')
-                    print('x with shape', x1.shape)
-                    print(value_estimates)
-                    print('\n\n\n\n\n')
-                    exit()
-                #value_diff = torch.cat((torch.tensor([0]), value_diff), dim=0)
-                
-                # if self.advice_mode == 'baseline':
-                #     if self.reward_clipping_func == 'normalize':
-                #         value_estimates = self.max_reward_scale * (value_estimates - self.score_mean) / (self.score_std + 1e-10)
-                prev_eps_steps = -1
-                temp_rewards = 0
-                crt_r_given = 0
-                rs_given = []
-                ends = []
+                value_diff = (value_estimates_ - value_estimates).cpu()
 
-                win_len = 1
+
 
                 try:
                     teacher_rewards = np.zeros(value_diff.shape)
                     for i in range(value_diff.size(0)):
+                        if self.advice_mode == 'llm':
+                            teacher_rewards[i] = (value_diff[i] - self.score_mean) / (self.score_std+1e-8) - self.const_penalty
+                        elif self.advice_mode == 'baseline':
+                            teacher_rewards[i] = (value_estimates[i] - self.score_mean) / (self.score_std+1e-8) - self.const_penalty
 
-                        if (self.advice_mode == 'llm' or self.advice_mode == 'baseline') and self.teacher_initialized:
-                            # if value_diff[i] < 0:
-                            #     value_diff[i] = torch.tensor(0)
-                            # if i > 0 and rollout[SampleBatch.REWARDS][i-1] > 0: # get rewards at the last step
-                            #     value_diff[i] = torch.tensor(0)
-
-
-                            # if value_diff[i] > 0:
-                            #     teacher_rewards[i] = value_diff[i] - 0.99 * (i - prev_eps_steps) / max_steps
-                            # if abs(value_diff[i]) < 0.005:
-                            #     teacher_rewards[i] = - 0.99 * (i - prev_eps_steps) / max_steps
-                            if self.advice_mode == 'llm':
-                                value_diff[i] = (value_diff[i] - self.score_mean) / (self.score_std+1e-8) - self.const_penalty
-                            elif self.advice_mode == 'baseline':
-                                value_diff[i] = (value_estimates[i] - self.score_mean) / (self.score_std+1e-8) - self.const_penalty
-                            # if value_diff[i] == 0:
-                            #     value_diff[i] = - 0.99 * (i - prev_eps_steps) / self.max_steps
-                            # else:
-                            #     if self.advice_mode == 'baseline':
-                            #         value_diff[i] = value_estimates[i]
-
-                            #teacher_rewards[i] = value_diff[i] - 0.99 * (i - prev_eps_steps) / max_steps
-
-                            #value_diff[i] += rollout[SampleBatch.REWARDS][i]
-
-                            if rollout[SampleBatch.DONES][i] or (i - prev_eps_steps >= self.max_steps):
-                                prev_eps_steps = i
-                                teacher_rewards[i] = value_diff[i]
-
-                            if i - prev_eps_steps >= win_len:
-                                teacher_rewards[i] = np.mean(convert_to_numpy(value_diff[(i - win_len + 1) : (i + 1)]))
-
-                        elif self.advice_mode == 'tfs' and self.teacher_initialized:
-                            if i > 0 and rollout[SampleBatch.REWARDS][i-1] > 0: # get rewards at the last step
-                                value_diff[i] = torch.tensor(0)
-
-                            temp_rewards += value_diff[i]
-                            if rollout[SampleBatch.REWARDS][i] > 0 or rollout[SampleBatch.DONES][i]:
-                                if value_diff[i] <= 0:
-                                    value_diff[i] = torch.tensor(0.3)
-
-                                if self.smooth_mode == 'cache':
-                                    #FAIL: teacher_rewards[i] = np.sum(convert_to_numpy(value_diff[nxt_reward_time:(i+1)])) - 0.9 * (i - prev_eps_steps) / 100
-                                    teacher_rewards[i] = np.max([temp_rewards - 0.9 * (i - prev_eps_steps) / self.max_steps, rollout[SampleBatch.REWARDS][i]-crt_r_given, 0.1])
-
-                                    #FAIL: teacher_rewards[i] = np.max([rollout[SampleBatch.REWARDS][i]-crt_r_given, 0.1])
-                                    temp_rewards = 0
-                                    crt_r_given = 0
-                                    #nxt_reward_time = i + 1
-
-                            elif self.smooth_mode == 'cache' and (i - prev_eps_steps >= self.max_steps):
-                                teacher_rewards[i] = temp_rewards - 0.9 * (i - prev_eps_steps) / self.max_steps
-                                temp_rewards = 0
-
-                            elif self.smooth_mode == 'cache' and abs(temp_rewards) >= 0.5:
-                                teacher_rewards[i] = temp_rewards
-                                crt_r_given += temp_rewards
-                                temp_rewards = 0
-
-                            if self.smooth_mode == 'win' and i - prev_eps_steps >= win_len:
-                                teacher_rewards[i] = np.mean(convert_to_numpy(value_diff[(i - win_len + 1) : (i + 1)]))
-
-                            if (i % win_len != 0 or i // win_len < 1) and (rollout[SampleBatch.REWARDS][i] <= 0):
-                                teacher_rewards[i] = 0
-
-                        if rollout[SampleBatch.DONES][i] or (i - prev_eps_steps >= self.max_steps):
-                            prev_eps_steps = i
-                            crt_r_given = 0
-                            ends.append(True)
-                        else:
-                            ends.append(False)
-
-                        rs_given.append(crt_r_given)
                 except:
                     teacher_rewards = np.zeros(1)
                     if self.advice_mode == 'llm':
@@ -307,7 +176,6 @@ def get_advised_policy(base_class):
                     elif self.advice_mode == 'baseline':
                         teacher_rewards[0] = (value_estimates - self.score_mean) / (self.score_std+1e-8) - self.const_penalty
                             
-                    # teacher_rewards[0] = value_diff - 0.9 / self.max_steps
 
             if use_gae:
                 vpred_t = np.concatenate([rollout[SampleBatch.VF_PREDS], np.array([last_r])])
